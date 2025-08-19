@@ -1,10 +1,6 @@
 #!/bin/bash
 #config 파일 변경 전 파일 백업
 
-#2025-05-02 git test 
-
-
-
 current_date=$(date +%Y-%m-%d)
 desti_dir="/home/backup/$current_date"
 mkdir -p "$desti_dir"
@@ -37,7 +33,7 @@ dnf install -y chrony
 systemctl enable chronyd
 systemctl start chronyd
 sed -i '/^pool 2.rocky.pool.ntp.org iburst/s/^/#/' /etc/chrony.conf
-echo "server 192.168.5.55 iburst" >> /etc/chrony.conf
+echo "server 8.8.8.8 iburst" >> /etc/chrony.conf
 systemctl restart chronyd
  
 echo -e "\n\n"
@@ -59,18 +55,18 @@ echo -e "\n\n"
 echo "계정 생성 및 root 원격접속 차단설정 완료"
 echo -e "\n\n" 
 
-#ssh 포트22 -> 24477 변경 
+#ssh 포트22 -> 1234 변경 
 echo -e "\n\n"
-echo "SSH 포트 24477로 변경"
+echo "SSH 포트 1234로 변경"
 echo -e "\n\n"
 
-sed -i 's/^#Port 22/Port 24477/' /etc/ssh/sshd_config
+sed -i 's/^#Port 22/Port 1234/' /etc/ssh/sshd_config
 sudo yum install policycoreutils-python-utils
-sudo semanage port -a -t ssh_port_t -p tcp 24477
+sudo semanage port -a -t ssh_port_t -p tcp 1234
 sudo systemctl restart sshd
 
 echo -e "\n\n"
-echo "SSH 포트 24477로 변경 완료"
+echo "SSH 포트 1234로 변경 완료"
 echo -e "\n\n"
 
  
@@ -103,7 +99,7 @@ echo -e "\n\n"
 #방화벽 DROP ZONE 설정
 echo "방화벽 DROP ZONE 설정 시작"
 firewall-cmd --set-default-zone=drop
-firewall-cmd --permanent --add-port=24477/tcp
+firewall-cmd --permanent --add-port=1234/tcp
 firewall-cmd --reload
 
 echo -e "\n\n" 
