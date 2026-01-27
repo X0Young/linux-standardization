@@ -9,7 +9,7 @@ The script includes SSH hardening, firewall configuration, password policy enfor
 ## Features
 
 ### 1. SSH Configuration
-- Changes the default SSH port from **22 to 1234**.
+- Changes the default SSH port from **22 to 24477**.
 - Applies SELinux policy changes for the new SSH port.
 - Restarts the `sshd` service to apply changes.
 
@@ -25,7 +25,7 @@ The script includes SSH hardening, firewall configuration, password policy enfor
 
 ### 4. Firewall (firewalld) Configuration
 - Sets the default zone to **drop**.
-- Opens the custom SSH port **1234/tcp**.
+- Opens the custom SSH port **24477/tcp**.
 - Reloads the firewall rules.
 
 ### 5. Login Session & History
