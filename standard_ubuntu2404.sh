@@ -322,6 +322,12 @@ fi
 chage -M 90 -m 7 "$username" || true
 #chage -M 90 -m 7 root || true
 
+# 기존 일반 계정 전체에도 동일 적용
+echo "기존 일반 계정 패스워드 만료 정책 일괄 적용 중..."
+for _u in $(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd); do
+  chage -M 90 -m 7 "$_u" && echo "  chage 적용: $_u" || echo "  chage 실패(무시): $_u"
+done
+
 echo "==== [PASS_MAX/MIN 점검] ===="
 grep -nE '^\s*PASS_(MAX|MIN)_DAYS' "$LOGIN_DEFS" || true
 echo
