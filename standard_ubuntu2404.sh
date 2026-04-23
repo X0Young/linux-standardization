@@ -422,6 +422,10 @@ chmod 0755 /etc/profile || true
 chown root:root /etc/pam.d/common-password /etc/pam.d/common-auth /etc/pam.d/common-account 2>/dev/null || true
 chmod 0644 /etc/pam.d/common-password /etc/pam.d/common-auth /etc/pam.d/common-account 2>/dev/null || true
 
+# 주요 명령어 root 전용 실행 (700)
+chmod 0700 /usr/bin/last 2>/dev/null || true
+[ -f /usr/sbin/ifconfig ] && chmod 0700 /usr/sbin/ifconfig 2>/dev/null || true
+
 if [ ! -f /etc/cron.allow ]; then
   touch /etc/cron.allow
 fi
