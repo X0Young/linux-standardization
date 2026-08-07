@@ -1,0 +1,503 @@
+# -*- coding: utf-8 -*-
+"""
+표준화 스크립트별 프로파일 정의.
+
+각 프로파일은 아래 3가지를 담는다.
+  settings : 스크립트가 적용하는 보안설정 목록 (안내 문서/엑셀용)
+  checks   : 적용 여부를 확인하는 점검 항목 (점검 결과 엑셀용)
+  manual   : 스크립트가 하지 않아 사람이 직접 해야 하는 작업
+
+checks 의 cmd 안에서는 아래 변수를 쓸 수 있다.
+  $TU  : 관리 대상 일반 계정 목록 (UID 1000 이상, nobody 제외)
+"""
+
+# =============================================================================
+# Ubuntu 24.04 LTS  —  standard_ubuntu2404.sh
+# =============================================================================
+UBUNTU2404_SETTINGS = [
+ ("사전 작업", "설정 파일 백업", "변경 대상 원본을 날짜별로 보관", "/root/backup/YYYY-MM-DD/"),
+ ("사전 작업", "OS 패키지 최신화", "apt update + upgrade 수행", "-"),
+ ("사전 작업", "기본 패키지 설치", "vim, net-tools, rsync, tcpdump, snmp, snmpd,\ndnsutils, chrony, ufw, libpam-pwquality, libpam-modules", "-"),
+
+ ("시간 동기화", "시간 동기화 서비스 활성화", "chrony 상시 기동 (부팅 시 자동 시작)", "chrony.service"),
+ ("시간 동기화", "사내 NTP 서버 지정", "192.168.5.55", "/etc/chrony/chrony.conf"),
+ ("시간 동기화", "외부 NTP 서버 차단", "기본 pool / server 항목 주석 처리", "/etc/chrony/chrony.conf"),
+ ("시간 동기화", "표준시 설정", "Asia/Seoul (KST, +0900)", "timedatectl"),
+
+ ("계정 및 원격 접속", "관리용 개인 계정 생성", "실행 시 인자로 받은 계정명 (홈 디렉터리 + /bin/bash)", "useradd"),
+ ("계정 및 원격 접속", "root 원격 로그인 차단", "PermitRootLogin no", "/etc/ssh/sshd_config"),
+ ("계정 및 원격 접속", "SSH 포트 변경", "22 → 24477", "/etc/ssh/sshd_config"),
+ ("계정 및 원격 접속", "SSH 설정 검증 후 반영", "sshd -t 통과 시에만 서비스 재시작", "ssh.service"),
+
+ ("관리자 권한", "su 명령 사용 제한", "sudo 그룹 소속 계정만 su 사용 가능 (pam_wheel)", "/etc/pam.d/su"),
+ ("관리자 권한", "su 실행 파일 권한 제한", "4750 (root:sudo)", "/bin/su"),
+ ("관리자 권한", "관리 계정 sudo 권한 부여", "생성 계정을 sudo 그룹에 추가", "usermod -aG sudo"),
+
+ ("패스워드 정책", "최소 길이", "8자 이상", "/etc/security/pwquality.conf"),
+ ("패스워드 정책", "복잡도", "숫자·특수문자·대문자·소문자 각 1자 이상", "/etc/security/pwquality.conf"),
+ ("패스워드 정책", "재사용 제한", "최근 2개 패스워드 재사용 금지", "/etc/pam.d/common-password"),
+ ("패스워드 정책", "최대 사용 기간", "90일", "/etc/login.defs"),
+ ("패스워드 정책", "최소 사용 기간", "7일 (변경 후 7일간 재변경 불가)", "/etc/login.defs"),
+ ("패스워드 정책", "기존 계정 일괄 적용", "UID 1000 이상 계정에 90일/7일 정책 소급 적용", "chage"),
+
+ ("계정 잠금", "로그인 실패 잠금", "5회 연속 실패 시 계정 잠금", "/etc/security/faillock.conf"),
+ ("계정 잠금", "실패 카운트 유지 시간", "900초 (15분)", "/etc/security/faillock.conf"),
+ ("계정 잠금", "잠금 해제 시간", "600초 (10분) 경과 후 자동 해제", "/etc/security/faillock.conf"),
+ ("계정 잠금", "잠금 기능 활성화", "pam_faillock 을 인증 스택에 등록\n(등록하지 않으면 위 정책이 동작하지 않음)", "/etc/pam.d/common-auth\n/etc/pam.d/common-account"),
+
+ ("방화벽", "방화벽 활성화", "UFW 기동 및 부팅 시 자동 시작", "ufw"),
+ ("방화벽", "기본 정책", "인바운드 차단 / 아웃바운드 허용", "ufw"),
+ ("방화벽", "SSH 포트 허용", "24477/tcp 허용, 22/tcp 규칙 제거", "ufw"),
+
+ ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃 (사용자 변경 불가)", "/etc/profile.d/zzz-timeout.sh"),
+ ("세션 및 명령 이력", "명령 이력 보관량", "세션 10,000건 / 파일 20,000건", "/etc/profile.d/zzz-history.sh"),
+ ("세션 및 명령 이력", "명령 실행 시각 기록", "이력에 날짜·시각 함께 저장 (YYYY-MM-DD HH:MM:SS)", "/etc/profile.d/zzz-history.sh"),
+ ("세션 및 명령 이력", "명령 즉시 기록", "명령 실행 시점마다 이력 파일에 반영\n(비정상 종료 시에도 이력 유실 방지)", "PROMPT_COMMAND"),
+ ("세션 및 명령 이력", "계정별 재정의 방지", "~/.bashrc 및 /etc/skel/.bashrc 의\nHISTSIZE·HISTFILESIZE·HISTCONTROL 재정의 무력화", "~/.bashrc, /etc/skel/.bashrc"),
+
+ ("파일 권한", "계정 정보 파일", "/etc/passwd, /etc/group → 644 (root:root)", "-"),
+ ("파일 권한", "패스워드 파일", "/etc/shadow → 640 (root:shadow)", "-"),
+ ("파일 권한", "네트워크 설정 파일", "/etc/hosts, /etc/services → 644", "-"),
+ ("파일 권한", "프로파일 / PAM 설정", "/etc/profile → 755, PAM 공통 설정 → 644", "-"),
+ ("파일 권한", "관리 명령어", "last, ifconfig → 700 (root 전용 실행)", "-"),
+ ("파일 권한", "cron 접근 제어", "cron.allow, cron.deny → 600", "-"),
+ ("파일 권한", "접속 기록 파일", "wtmp, btmp → 600\n(재부팅 후 원복 방지를 위해 tmpfiles 규칙으로 고정)", "/etc/tmpfiles.d/zzz-wtmp.conf"),
+ ("파일 권한", "로그 파일", "auth.log, syslog → 640 (존재 시)", "-"),
+ ("파일 권한", "계정 백업 파일", "passwd-, group-, shadow-, gshadow- → 600", "-"),
+ ("파일 권한", "신규 파일 기본 권한", "umask 027\n(생성 파일에 그룹 쓰기·타 사용자 접근 차단)", "/etc/profile.d/zzz-umask.sh"),
+
+ ("환경변수 / 콘솔", "PATH 보호", "PATH 에서 현재 디렉터리(.) 제거\n(작업 디렉터리의 위장 실행파일 방지)", "/etc/profile.d/zzz-path.sh"),
+ ("환경변수 / 콘솔", "root 콘솔 로그인 제한", "허용 터미널을 물리 콘솔로 한정, 원격 터미널(pts) 제외", "/etc/securetty"),
+]
+
+UBUNTU2404_MANUAL = [
+ ("계정 패스워드 설정", "sudo passwd <계정명>", "스크립트는 계정만 생성하며 패스워드는 설정하지 않음"),
+ ("SSH 재접속 확인", "ssh -p 24477 <계정명>@<서버IP>", "현재 세션을 닫기 전에 새 터미널에서 반드시 확인"),
+ ("인증 설정 정상 동작 확인", "su - <계정명> / sudo -v", "계정 잠금 기능 적용에 따른 인증 스택 변경 검증"),
+]
+
+UBUNTU2404_CHECKS = [
+ dict(sec="사전 작업", no="1-1", item="설정 파일 백업",
+      cmd="ls -1 /root/backup/*/ 2>/dev/null | sort -u | head -20",
+      exp="변경 대상 원본이 백업되어 있을 것", judge="contains:sshd_config"),
+ dict(sec="사전 작업", no="1-2", item="기본 패키지 설치",
+      cmd="for p in vim net-tools rsync tcpdump snmp snmpd dnsutils chrony ufw libpam-pwquality libpam-modules; do s=$(dpkg-query -W -f='${Status}' $p 2>/dev/null); case \"$s\" in 'install ok installed') echo \"OK   $p\";; *) echo \"MISS $p\";; esac; done",
+      exp="11종 전부 설치", judge="absent:MISS"),
+
+ dict(sec="시간 동기화", no="2-1", item="chrony 서비스 활성화",
+      cmd="systemctl is-enabled chrony 2>&1; systemctl is-active chrony 2>&1",
+      exp="enabled / active", judge="both:enabled,active"),
+ dict(sec="시간 동기화", no="2-2", item="사내 NTP 서버 지정",
+      cmd="grep -nE '^\\s*server\\s+192\\.168\\.5\\.55' /etc/chrony/chrony.conf || echo 'NOT_FOUND'",
+      exp="server 192.168.5.55 iburst", judge="absent:NOT_FOUND"),
+ dict(sec="시간 동기화", no="2-3", item="외부 NTP 서버 차단",
+      cmd="grep -nE '^\\s*(pool|server)\\s' /etc/chrony/chrony.conf | grep -v '192.168.5.55' || echo 'NONE_EXTRA'",
+      exp="사내 NTP 외 활성 항목 없음", judge="contains:NONE_EXTRA"),
+ dict(sec="시간 동기화", no="2-4", item="시간 동기화 정상 동작",
+      cmd="chronyc tracking 2>&1 | grep -E 'Reference ID|Stratum|Leap status'",
+      exp="Leap status: Normal", judge="contains:Normal"),
+ dict(sec="시간 동기화", no="2-5", item="표준시 설정",
+      cmd="timedatectl 2>&1 | grep -E 'Time zone|synchronized'",
+      exp="Asia/Seoul (KST, +0900)", judge="contains:Asia/Seoul"),
+
+ dict(sec="계정 및 원격 접속", no="3-1", item="관리용 개인 계정 생성",
+      cmd="awk -F: '$3>=1000 && $3<65534 && $1!=\"nobody\" {print $1\" uid=\"$3\" shell=\"$7}' /etc/passwd",
+      exp="관리 계정 존재 (/bin/bash)", judge="nonempty"),
+ dict(sec="계정 및 원격 접속", no="3-2", item="root 원격 로그인 차단",
+      cmd="sshd -T 2>/dev/null | grep -i '^permitrootlogin' || grep -iE '^\\s*PermitRootLogin' /etc/ssh/sshd_config",
+      exp="permitrootlogin no", judge="contains:permitrootlogin no"),
+ dict(sec="계정 및 원격 접속", no="3-3", item="SSH 포트 변경",
+      cmd="sshd -T 2>/dev/null | grep -i '^port ' || grep -iE '^\\s*Port\\s' /etc/ssh/sshd_config",
+      exp="port 24477", judge="contains:port 24477"),
+ dict(sec="계정 및 원격 접속", no="3-4", item="SSH 설정 문법 정상",
+      cmd="sshd -t 2>&1 && echo 'SYNTAX_OK'",
+      exp="SYNTAX_OK", judge="contains:SYNTAX_OK"),
+ dict(sec="계정 및 원격 접속", no="3-5", item="SSH 서비스 기동 및 포트 대기",
+      cmd="systemctl is-active ssh 2>&1; ss -tlnp 2>/dev/null | grep -E ':24477' || echo 'NOT_LISTEN'",
+      exp="active + 24477 LISTEN", judge="absent:NOT_LISTEN"),
+ dict(sec="계정 및 원격 접속", no="3-6", item="기존 22번 포트 미사용",
+      cmd="ss -tlnp 2>/dev/null | grep -E ':22\\s' || echo 'PORT22_CLOSED'",
+      exp="22번 미대기", judge="contains:PORT22_CLOSED"),
+
+ dict(sec="관리자 권한", no="4-1", item="su 명령 사용 제한",
+      cmd="grep -nE '^\\s*auth\\s+required\\s+pam_wheel\\.so' /etc/pam.d/su || echo 'NOT_FOUND'",
+      exp="pam_wheel.so use_uid group=sudo", judge="absent:NOT_FOUND"),
+ dict(sec="관리자 권한", no="4-2", item="su 실행 파일 권한",
+      cmd="stat -c '%n %U:%G %a' /bin/su",
+      exp="root:sudo 4750", judge="contains:root:sudo 4750"),
+ dict(sec="관리자 권한", no="4-3", item="관리 계정 sudo 권한",
+      cmd="for u in $TU; do echo \"$u: $(id -nG $u 2>/dev/null)\"; done",
+      exp="sudo 그룹 포함", judge="contains:sudo"),
+
+ dict(sec="패스워드 정책", no="5-1", item="최소 길이",
+      cmd="grep -nE '^\\s*minlen' /etc/security/pwquality.conf || echo 'NOT_SET'",
+      exp="minlen = 8", judge="contains:minlen = 8"),
+ dict(sec="패스워드 정책", no="5-2", item="복잡도",
+      cmd="grep -nE '^\\s*(dcredit|ocredit|ucredit|lcredit)' /etc/security/pwquality.conf || echo 'NOT_SET'",
+      exp="4종 모두 = -1", judge="credits"),
+ dict(sec="패스워드 정책", no="5-3", item="재사용 제한",
+      cmd="grep -nE 'pam_pwhistory\\.so.*remember=2' /etc/pam.d/common-password || echo 'NOT_FOUND'",
+      exp="pam_pwhistory remember=2", judge="absent:NOT_FOUND"),
+ dict(sec="패스워드 정책", no="5-4", item="재사용 제한 적용 순서",
+      cmd="grep -nE 'pam_pwhistory|pam_unix' /etc/pam.d/common-password | grep -vE '^[0-9]+:\\s*#'",
+      exp="pwhistory 가 pam_unix 보다 앞", judge="pwhistory_order"),
+ dict(sec="패스워드 정책", no="5-5", item="최대 사용 기간",
+      cmd="grep -nE '^\\s*PASS_MAX_DAYS' /etc/login.defs || echo 'NOT_SET'",
+      exp="PASS_MAX_DAYS 90", judge="regex:PASS_MAX_DAYS\\s+90"),
+ dict(sec="패스워드 정책", no="5-6", item="최소 사용 기간",
+      cmd="grep -nE '^\\s*PASS_MIN_DAYS' /etc/login.defs || echo 'NOT_SET'",
+      exp="PASS_MIN_DAYS 7", judge="regex:PASS_MIN_DAYS\\s+7"),
+ dict(sec="패스워드 정책", no="5-7", item="기존 계정 일괄 적용",
+      cmd="for u in $TU; do echo \"== $u\"; chage -l $u 2>/dev/null | grep -E 'Maximum|Minimum'; done",
+      exp="Maximum 90 / Minimum 7", judge="chagemaxmin"),
+
+ dict(sec="계정 잠금", no="6-1", item="로그인 실패 잠금 횟수",
+      cmd="grep -nE '^\\s*deny' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="deny = 5", judge="regex:deny\\s*=\\s*5"),
+ dict(sec="계정 잠금", no="6-2", item="실패 카운트 유지 시간",
+      cmd="grep -nE '^\\s*fail_interval' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="fail_interval = 900", judge="regex:fail_interval\\s*=\\s*900"),
+ dict(sec="계정 잠금", no="6-3", item="잠금 해제 시간",
+      cmd="grep -nE '^\\s*unlock_time' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="unlock_time = 600", judge="regex:unlock_time\\s*=\\s*600"),
+ dict(sec="계정 잠금", no="6-4", item="잠금 기능 활성화 (PAM 등록)",
+      cmd="grep -n 'pam_faillock' /etc/pam.d/common-auth /etc/pam.d/common-account 2>/dev/null || echo 'NOT_ENABLED'",
+      exp="preauth / authfail / authsucc 등록", judge="faillock_stack"),
+ dict(sec="계정 잠금", no="6-5", item="잠금 상태 조회 가능",
+      cmd="faillock 2>&1 | head -10",
+      exp="faillock 정상 조회", judge="absent:Error reading"),
+
+ dict(sec="방화벽", no="7-1", item="방화벽 활성화",
+      cmd="ufw status verbose 2>&1 | head -12",
+      exp="Status: active", judge="contains:Status: active"),
+ dict(sec="방화벽", no="7-2", item="기본 정책",
+      cmd="ufw status verbose 2>&1 | grep -i 'Default'",
+      exp="deny (incoming) / allow (outgoing)", judge="ufwdefault"),
+ dict(sec="방화벽", no="7-3", item="SSH 포트 허용",
+      cmd="ufw status 2>&1 | grep 24477 || echo 'NOT_ALLOWED'",
+      exp="24477/tcp ALLOW", judge="absent:NOT_ALLOWED"),
+ dict(sec="방화벽", no="7-4", item="기존 22번 규칙 제거",
+      cmd="ufw status 2>&1 | grep -E '(^|[^0-9])22/tcp' || echo 'NO_RULE_22'",
+      exp="22 규칙 없음", judge="contains:NO_RULE_22"),
+ dict(sec="방화벽", no="7-5", item="부팅 시 자동 시작",
+      cmd="systemctl is-enabled ufw 2>&1",
+      exp="enabled", judge="contains:enabled"),
+
+ dict(sec="세션 및 명령 이력", no="8-1", item="유휴 세션 종료 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-timeout.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="세션 및 명령 이력", no="8-2", item="유휴 세션 종료 적용",
+      cmd="bash -lic 'declare -p TMOUT' 2>/dev/null || echo 'NOT_SET'",
+      exp="declare -r TMOUT=\"1800\"", judge="tmout"),
+ dict(sec="세션 및 명령 이력", no="8-3", item="명령 이력 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-history.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="세션 및 명령 이력", no="8-4", item="비로그인 셸 반영",
+      cmd="grep -c '__append_hist_cmds' /etc/bash.bashrc 2>/dev/null",
+      exp="1 이상", judge="ge1"),
+ dict(sec="세션 및 명령 이력", no="8-5", item="이력 보관량 및 시각 기록",
+      cmd="bash -lic 'echo \"HISTSIZE=$HISTSIZE HISTFILESIZE=$HISTFILESIZE HISTTIMEFORMAT=[$HISTTIMEFORMAT] HISTCONTROL=$HISTCONTROL\"' 2>/dev/null",
+      exp="10000 / 20000 / %F %T / ignoredups:erasedups", judge="hist"),
+ dict(sec="세션 및 명령 이력", no="8-6", item="명령 즉시 기록",
+      cmd="bash -lic 'echo \"PC=$PROMPT_COMMAND\"' 2>/dev/null",
+      exp="__append_hist_cmds 등록", judge="contains:__append_hist_cmds"),
+ dict(sec="세션 및 명령 이력", no="8-7", item="계정별 재정의 방지",
+      cmd="grep -HnE '^\\s*(HISTSIZE|HISTFILESIZE|HISTCONTROL)=' /etc/skel/.bashrc /home/*/.bashrc 2>/dev/null || echo 'NO_OVERRIDE'",
+      exp="재정의 라인 없음(주석 처리됨)", judge="contains:NO_OVERRIDE"),
+
+ dict(sec="파일 권한", no="9-1", item="/etc/passwd",
+      cmd="stat -c '%n %U:%G %a' /etc/passwd", exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-2", item="/etc/group",
+      cmd="stat -c '%n %U:%G %a' /etc/group", exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-3", item="/etc/shadow",
+      cmd="stat -c '%n %U:%G %a' /etc/shadow", exp="root:shadow 640", judge="contains:root:shadow 640"),
+ dict(sec="파일 권한", no="9-4", item="/etc/hosts, /etc/services",
+      cmd="stat -c '%n %U:%G %a' /etc/hosts /etc/services", exp="root:root 644", judge="allmatch:root:root 644"),
+ dict(sec="파일 권한", no="9-5", item="/etc/profile",
+      cmd="stat -c '%n %U:%G %a' /etc/profile", exp="root:root 755", judge="contains:root:root 755"),
+ dict(sec="파일 권한", no="9-6", item="PAM 공통 설정",
+      cmd="stat -c '%n %U:%G %a' /etc/pam.d/common-auth /etc/pam.d/common-account /etc/pam.d/common-password 2>&1",
+      exp="root:root 644", judge="allmatch:root:root 644"),
+ dict(sec="파일 권한", no="9-7", item="관리 명령어 (last)",
+      cmd="stat -c '%n %a' /usr/bin/last 2>&1", exp="700", judge="contains:700"),
+ dict(sec="파일 권한", no="9-8", item="관리 명령어 (ifconfig)",
+      cmd="[ -f /usr/sbin/ifconfig ] && stat -c '%n %a' /usr/sbin/ifconfig || echo 'NOT_INSTALLED'",
+      exp="700 (미설치 시 해당 없음)", judge="ifconfig"),
+ dict(sec="파일 권한", no="9-9", item="cron 접근 제어",
+      cmd="stat -c '%n %U:%G %a' /etc/cron.allow 2>&1; [ -f /etc/cron.deny ] && stat -c '%n %U:%G %a' /etc/cron.deny || echo '(cron.deny 없음)'",
+      exp="root:root 600", judge="contains:root:root 600"),
+ dict(sec="파일 권한", no="9-10", item="접속 기록 파일 (wtmp/btmp)",
+      cmd="stat -c '%n %U:%G %a' /var/log/wtmp /var/log/btmp 2>&1; echo '--- tmpfiles 규칙:'; cat /etc/tmpfiles.d/zzz-wtmp.conf 2>/dev/null || echo '(규칙 없음)'",
+      exp="root:utmp 600 + tmpfiles 규칙 존재", judge="allmatch_first2:root:utmp 600"),
+ dict(sec="파일 권한", no="9-11", item="인증 로그",
+      cmd="[ -f /var/log/auth.log ] && stat -c '%n %U:%G %a' /var/log/auth.log || echo 'NOT_EXIST'",
+      exp="640 (rsyslog 미사용 시 해당 없음)", judge="logperm"),
+ dict(sec="파일 권한", no="9-12", item="시스템 로그",
+      cmd="[ -f /var/log/syslog ] && stat -c '%n %U:%G %a' /var/log/syslog || echo 'NOT_EXIST'",
+      exp="640 (rsyslog 미사용 시 해당 없음)", judge="logperm"),
+ dict(sec="파일 권한", no="9-13", item="계정 백업 파일",
+      cmd="for f in /etc/passwd- /etc/group- /etc/shadow- /etc/gshadow-; do [ -e $f ] && stat -c '%n %U:%G %a' $f; done; echo 'EOL'",
+      exp="root:root 600", judge="backupperm"),
+ dict(sec="파일 권한", no="9-14", item="신규 파일 기본 권한 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-umask.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-15", item="신규 파일 기본 권한 적용",
+      cmd="bash -lic 'umask' 2>/dev/null", exp="0027", judge="contains:0027"),
+
+ dict(sec="환경변수 / 콘솔", no="10-1", item="PATH 보호 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-path.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="환경변수 / 콘솔", no="10-2", item="PATH 보호 적용",
+      cmd="bash -lic 'echo \"PATH=$PATH\"' 2>/dev/null",
+      exp="'.' 및 빈 경로 없음", judge="pathdot"),
+ dict(sec="환경변수 / 콘솔", no="10-3", item="root 콘솔 로그인 제한",
+      cmd="grep -n 'pam_securetty' /etc/pam.d/login 2>/dev/null || echo 'PAM_NOT_SET'; echo '--- securetty:'; [ -f /etc/securetty ] && (grep -cE '^\\s*pts/' /etc/securetty | sed 's/^/pts 항목 수: /') || echo 'NO_SECURETTY_FILE'",
+      exp="pam_securetty 등록 + pts 항목 0", judge="securetty_pair"),
+]
+
+# =============================================================================
+# Rocky Linux 8  —  standard_v8.sh
+# =============================================================================
+ROCKY_COMMON_SETTINGS = [
+ ("사전 작업", "설정 파일 백업", "변경 대상 원본을 날짜별로 보관", "/home/backup/YYYY-MM-DD/"),
+ ("사전 작업", "OS 패키지 최신화", "yum update 수행", "-"),
+ ("사전 작업", "기본 패키지 설치", "vim, net-tools, rsync, tcpdump, net-snmp,\nbind-utils, policycoreutils-python-utils, chrony", "-"),
+
+ ("시간 동기화", "시간 동기화 서비스 활성화", "chronyd 상시 기동 (부팅 시 자동 시작)", "chronyd.service"),
+ ("시간 동기화", "사내 NTP 서버 지정", "192.168.5.55", "/etc/chrony.conf"),
+ ("시간 동기화", "외부 NTP 서버 차단", "기본 pool (2.rocky.pool.ntp.org) 주석 처리", "/etc/chrony.conf"),
+
+ ("계정 및 원격 접속", "관리용 개인 계정 생성", "실행 중 입력받은 계정명 (패스워드도 함께 설정)", "useradd / passwd"),
+ ("계정 및 원격 접속", "root 원격 로그인 차단", "PermitRootLogin no", "/etc/ssh/sshd_config"),
+
+ ("관리자 권한", "su 명령 사용 제한", "wheel 그룹 소속 계정만 su 사용 가능 (pam_wheel)", "/etc/pam.d/su"),
+ ("관리자 권한", "su 실행 파일 권한 제한", "4750 (root:wheel)", "/bin/su"),
+ ("관리자 권한", "관리 계정 sudo 권한 부여", "생성 계정을 wheel 그룹에 추가", "usermod -aG wheel"),
+
+ ("패스워드 정책", "최소 길이", "8자 이상", "/etc/security/pwquality.conf"),
+ ("패스워드 정책", "복잡도", "숫자·특수문자·대문자·소문자 각 1자 이상", "/etc/security/pwquality.conf"),
+ ("패스워드 정책", "재사용 제한", "최근 2개 패스워드 재사용 금지", "/etc/pam.d/system-auth\n/etc/pam.d/password-auth"),
+ ("패스워드 정책", "최대 사용 기간", "90일", "/etc/login.defs"),
+
+ ("계정 잠금", "잠금 기능 활성화", "authselect with-faillock 기능 활성화", "authselect"),
+ ("계정 잠금", "로그인 실패 잠금", "3회 연속 실패 시 계정 잠금", "/etc/security/faillock.conf"),
+ ("계정 잠금", "잠금 해제 시간", "600초 (10분) 경과 후 자동 해제", "/etc/security/faillock.conf"),
+ ("계정 잠금", "실패 기록 표시 억제", "silent 옵션 활성화", "/etc/security/faillock.conf"),
+
+ ("방화벽", "기본 존 설정", "default zone = drop (미허용 트래픽 폐기)", "firewalld"),
+ ("방화벽", "SSH 포트 허용", "24477/tcp 허용 (permanent)", "firewalld"),
+
+ ("세션 및 명령 이력", "명령 이력 보관량", "세션 10,000건 / 파일 20,000건", "/etc/profile.d/zzz-history.sh"),
+ ("세션 및 명령 이력", "명령 실행 시각 기록", "이력에 날짜·시각 함께 저장 (YYYY-MM-DD HH:MM:SS)", "/etc/profile.d/zzz-history.sh"),
+ ("세션 및 명령 이력", "명령 즉시 기록", "명령 실행 시점마다 이력 파일에 반영", "PROMPT_COMMAND"),
+
+ ("파일 권한", "계정 정보 파일", "/etc/passwd, /etc/group → 644 (root:root)", "-"),
+ ("파일 권한", "패스워드 파일", "/etc/shadow → 400 (root:root)", "-"),
+ ("파일 권한", "네트워크 설정 파일", "/etc/hosts, /etc/services → 644", "-"),
+ ("파일 권한", "프로파일", "/etc/profile → 755", "-"),
+ ("파일 권한", "계정 백업 파일", "passwd-, group-, shadow- → 600", "-"),
+ ("파일 권한", "신규 파일 기본 권한", "umask 027", "/etc/profile.d/zzz-umask.sh"),
+
+ ("환경변수 / 콘솔", "PATH 보호", "PATH 에서 현재 디렉터리(.) 제거", "/etc/profile.d/zzz-path.sh"),
+]
+
+ROCKY8_SETTINGS = ROCKY_COMMON_SETTINGS + [
+ ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃", "/etc/profile"),
+ ("환경변수 / 콘솔", "root 콘솔 로그인 제한", "pam_securetty 적용 및 원격 터미널(pts) 제외", "/etc/pam.d/login\n/etc/securetty"),
+]
+
+ROCKY9_SETTINGS = ROCKY_COMMON_SETTINGS + [
+ ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃 (사용자 변경 불가)", "/etc/profile.d/zzz-timeout.sh"),
+ ("계정 및 원격 접속", "SSH 설정 일괄 적용", "sshd_config.d/*.conf 의 PermitRootLogin 까지 함께 처리 후 reload", "/etc/ssh/sshd_config.d/"),
+]
+
+ROCKY_MANUAL = [
+ ("SSH 포트 확인", "ss -tlnp | grep sshd", "방화벽은 24477 을 열지만 스크립트가 sshd 포트를 바꾸지는 않음.\n포트 변경이 필요하면 sshd_config 수정 + semanage port 등록 필요"),
+ ("SELinux 포트 등록", "semanage port -a -t ssh_port_t -p tcp 24477", "SSH 포트를 변경하는 경우에만 필요"),
+ ("접속 확인", "새 터미널에서 SSH 재접속", "현재 세션을 닫기 전에 반드시 확인"),
+]
+
+_ROCKY_COMMON_CHECKS = [
+ dict(sec="사전 작업", no="1-1", item="설정 파일 백업",
+      cmd="ls -1 /home/backup/*/ 2>/dev/null | sort -u | head -20",
+      exp="변경 대상 원본이 백업되어 있을 것", judge="contains:sshd_config"),
+ dict(sec="사전 작업", no="1-2", item="기본 패키지 설치",
+      cmd="for p in vim net-tools rsync tcpdump net-snmp bind-utils policycoreutils-python-utils chrony; do rpm -q $p >/dev/null 2>&1 && echo \"OK   $p\" || echo \"MISS $p\"; done",
+      exp="8종 전부 설치", judge="absent:MISS"),
+
+ dict(sec="시간 동기화", no="2-1", item="chronyd 서비스 활성화",
+      cmd="systemctl is-enabled chronyd 2>&1; systemctl is-active chronyd 2>&1",
+      exp="enabled / active", judge="both:enabled,active"),
+ dict(sec="시간 동기화", no="2-2", item="사내 NTP 서버 지정",
+      cmd="grep -nE '^\\s*server\\s+192\\.168\\.5\\.55' /etc/chrony.conf || echo 'NOT_FOUND'",
+      exp="server 192.168.5.55 iburst", judge="absent:NOT_FOUND"),
+ dict(sec="시간 동기화", no="2-3", item="외부 NTP 서버 차단",
+      cmd="grep -nE '^\\s*(pool|server)\\s' /etc/chrony.conf | grep -v '192.168.5.55' || echo 'NONE_EXTRA'",
+      exp="사내 NTP 외 활성 항목 없음", judge="contains:NONE_EXTRA"),
+ dict(sec="시간 동기화", no="2-4", item="시간 동기화 정상 동작",
+      cmd="chronyc tracking 2>&1 | grep -E 'Reference ID|Stratum|Leap status'",
+      exp="Leap status: Normal", judge="contains:Normal"),
+
+ dict(sec="계정 및 원격 접속", no="3-1", item="관리용 개인 계정 생성",
+      cmd="awk -F: '$3>=1000 && $3<65534 && $1!=\"nobody\" {print $1\" uid=\"$3\" shell=\"$7}' /etc/passwd",
+      exp="관리 계정 존재", judge="nonempty"),
+ dict(sec="계정 및 원격 접속", no="3-2", item="관리 계정 패스워드 설정",
+      cmd="for u in $TU; do passwd -S $u 2>/dev/null; done",
+      exp="상태 P (설정됨)", judge="pwstatus"),
+ dict(sec="계정 및 원격 접속", no="3-3", item="root 원격 로그인 차단",
+      cmd="sshd -T 2>/dev/null | grep -i '^permitrootlogin' || grep -ihE '^\\s*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null",
+      exp="permitrootlogin no", judge="contains:permitrootlogin no"),
+ dict(sec="계정 및 원격 접속", no="3-4", item="SSH 서비스 기동",
+      cmd="systemctl is-active sshd 2>&1; ss -tlnp 2>/dev/null | grep -i sshd | head -4",
+      exp="active + 포트 대기", judge="contains:active"),
+
+ dict(sec="관리자 권한", no="4-1", item="su 명령 사용 제한",
+      cmd="grep -nE '^\\s*auth\\s+required\\s+pam_wheel\\.so' /etc/pam.d/su || echo 'NOT_FOUND'",
+      exp="pam_wheel.so use_uid (주석 해제)", judge="absent:NOT_FOUND"),
+ dict(sec="관리자 권한", no="4-2", item="su 실행 파일 권한",
+      cmd="stat -c '%n %U:%G %a' /bin/su",
+      exp="root:wheel 4750", judge="contains:root:wheel 4750"),
+ dict(sec="관리자 권한", no="4-3", item="관리 계정 wheel 그룹 소속",
+      cmd="for u in $TU; do echo \"$u: $(id -nG $u 2>/dev/null)\"; done",
+      exp="wheel 그룹 포함", judge="contains:wheel"),
+
+ dict(sec="패스워드 정책", no="5-1", item="최소 길이",
+      cmd="grep -nE '^\\s*minlen' /etc/security/pwquality.conf || echo 'NOT_SET'",
+      exp="minlen = 8", judge="contains:minlen = 8"),
+ dict(sec="패스워드 정책", no="5-2", item="복잡도",
+      cmd="grep -nE '^\\s*(dcredit|ocredit|ucredit|lcredit)' /etc/security/pwquality.conf || echo 'NOT_SET'",
+      exp="4종 모두 = -1", judge="credits"),
+ dict(sec="패스워드 정책", no="5-3", item="재사용 제한",
+      cmd="grep -nE 'remember=2' /etc/pam.d/system-auth /etc/pam.d/password-auth 2>/dev/null || echo 'NOT_FOUND'",
+      exp="system-auth / password-auth 에 remember=2", judge="absent:NOT_FOUND"),
+ dict(sec="패스워드 정책", no="5-4", item="최대 사용 기간",
+      cmd="grep -nE '^\\s*PASS_MAX_DAYS' /etc/login.defs || echo 'NOT_SET'",
+      exp="PASS_MAX_DAYS 90", judge="regex:PASS_MAX_DAYS\\s+90"),
+ dict(sec="패스워드 정책", no="5-5", item="기존 계정 만료 정책 적용",
+      cmd="for u in $TU; do echo \"== $u\"; chage -l $u 2>/dev/null | grep -E 'Maximum'; done",
+      exp="Maximum 90 (스크립트는 신규 계정만 대상)", judge="manual"),
+
+ dict(sec="계정 잠금", no="6-1", item="잠금 기능 활성화 (authselect)",
+      cmd="authselect current 2>&1 | head -10",
+      exp="with-faillock 기능 활성화", judge="contains:with-faillock"),
+ dict(sec="계정 잠금", no="6-2", item="잠금 기능 PAM 반영",
+      cmd="grep -n 'pam_faillock' /etc/pam.d/system-auth /etc/pam.d/password-auth 2>/dev/null || echo 'NOT_ENABLED'",
+      exp="preauth / authfail 등록", judge="absent:NOT_ENABLED"),
+ dict(sec="계정 잠금", no="6-3", item="로그인 실패 잠금 횟수",
+      cmd="grep -nE '^\\s*deny' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="deny = 3", judge="regex:deny\\s*=\\s*3"),
+ dict(sec="계정 잠금", no="6-4", item="잠금 해제 시간",
+      cmd="grep -nE '^\\s*unlock_time' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="unlock_time = 600", judge="regex:unlock_time\\s*=\\s*600"),
+ dict(sec="계정 잠금", no="6-5", item="실패 기록 표시 억제",
+      cmd="grep -nE '^\\s*silent' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="silent", judge="absent:NOT_SET"),
+ dict(sec="계정 잠금", no="6-6", item="잠금 상태 조회 가능",
+      cmd="faillock 2>&1 | head -10",
+      exp="faillock 정상 조회", judge="absent:Error reading"),
+
+ dict(sec="방화벽", no="7-1", item="방화벽 기동",
+      cmd="systemctl is-active firewalld 2>&1; systemctl is-enabled firewalld 2>&1",
+      exp="active / enabled", judge="both:active,enabled"),
+ dict(sec="방화벽", no="7-2", item="기본 존 설정",
+      cmd="firewall-cmd --get-default-zone 2>&1",
+      exp="drop", judge="contains:drop"),
+ dict(sec="방화벽", no="7-3", item="SSH 포트 허용",
+      cmd="firewall-cmd --permanent --list-ports 2>&1; echo '--- runtime:'; firewall-cmd --list-ports 2>&1",
+      exp="24477/tcp", judge="contains:24477/tcp"),
+
+ dict(sec="세션 및 명령 이력", no="8-1", item="명령 이력 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-history.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="세션 및 명령 이력", no="8-2", item="이력 보관량 및 시각 기록",
+      cmd="bash -lic 'echo \"HISTSIZE=$HISTSIZE HISTFILESIZE=$HISTFILESIZE HISTTIMEFORMAT=[$HISTTIMEFORMAT] HISTCONTROL=$HISTCONTROL\"' 2>/dev/null",
+      exp="10000 / 20000 / %F %T / ignoredups:erasedups", judge="hist"),
+ dict(sec="세션 및 명령 이력", no="8-3", item="명령 즉시 기록",
+      cmd="bash -lic 'echo \"PC=$PROMPT_COMMAND\"' 2>/dev/null",
+      exp="__append_hist_cmds 등록", judge="contains:__append_hist_cmds"),
+
+ dict(sec="파일 권한", no="9-1", item="/etc/passwd",
+      cmd="stat -c '%n %U:%G %a' /etc/passwd", exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-2", item="/etc/group",
+      cmd="stat -c '%n %U:%G %a' /etc/group", exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-3", item="/etc/shadow",
+      cmd="stat -c '%n %U:%G %a' /etc/shadow", exp="root:root 400", judge="contains:root:root 400"),
+ dict(sec="파일 권한", no="9-4", item="/etc/hosts, /etc/services",
+      cmd="stat -c '%n %a' /etc/hosts /etc/services", exp="644", judge="allmatch:644"),
+ dict(sec="파일 권한", no="9-5", item="/etc/profile",
+      cmd="stat -c '%n %a' /etc/profile", exp="755", judge="contains:755"),
+ dict(sec="파일 권한", no="9-6", item="계정 백업 파일",
+      cmd="for f in /etc/passwd- /etc/group- /etc/shadow- /etc/gshadow-; do [ -e $f ] && stat -c '%n %U:%G %a' $f; done; echo 'EOL'",
+      exp="600", judge="backupperm_mode"),
+ dict(sec="파일 권한", no="9-7", item="신규 파일 기본 권한 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-umask.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="파일 권한", no="9-8", item="신규 파일 기본 권한 적용",
+      cmd="bash -lic 'umask' 2>/dev/null", exp="0027", judge="contains:0027"),
+
+ dict(sec="환경변수 / 콘솔", no="10-1", item="PATH 보호 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-path.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="환경변수 / 콘솔", no="10-2", item="PATH 보호 적용",
+      cmd="bash -lic 'echo \"PATH=$PATH\"' 2>/dev/null",
+      exp="'.' 및 빈 경로 없음", judge="pathdot"),
+]
+
+ROCKY8_CHECKS = _ROCKY_COMMON_CHECKS + [
+ dict(sec="세션 및 명령 이력", no="8-4", item="유휴 세션 자동 종료 설정",
+      cmd="grep -nE '^\\s*(export\\s+)?TMOUT' /etc/profile /etc/profile.d/*.sh 2>/dev/null || echo 'NOT_SET'",
+      exp="TMOUT=1800 + readonly", judge="absent:NOT_SET"),
+ dict(sec="세션 및 명령 이력", no="8-5", item="유휴 세션 자동 종료 적용",
+      cmd="bash -lic 'declare -p TMOUT' 2>/dev/null || echo 'NOT_SET'",
+      exp="declare -r TMOUT=\"1800\"", judge="tmout"),
+ dict(sec="환경변수 / 콘솔", no="10-3", item="root 콘솔 로그인 제한",
+      cmd="grep -n 'pam_securetty' /etc/pam.d/login 2>/dev/null || echo 'PAM_NOT_SET'; echo '--- securetty:'; [ -f /etc/securetty ] && (grep -cE '^\\s*pts/' /etc/securetty | sed 's/^/pts 항목 수: /') || echo 'NO_SECURETTY_FILE'",
+      exp="pam_securetty 등록 + pts 항목 0", judge="securetty_pair"),
+]
+
+ROCKY9_CHECKS = _ROCKY_COMMON_CHECKS + [
+ dict(sec="세션 및 명령 이력", no="8-4", item="유휴 세션 종료 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-timeout.sh 2>&1",
+      exp="root:root 644", judge="contains:root:root 644"),
+ dict(sec="세션 및 명령 이력", no="8-5", item="유휴 세션 자동 종료 적용",
+      cmd="bash -lic 'declare -p TMOUT' 2>/dev/null || echo 'NOT_SET'",
+      exp="declare -r TMOUT=\"1800\"", judge="tmout"),
+]
+
+# =============================================================================
+PROFILES = {
+    "ubuntu2404": dict(
+        title="Ubuntu 24.04 LTS",
+        script="standard_ubuntu2404.sh",
+        usage="sudo bash standard_ubuntu2404.sh <계정명>",
+        settings=UBUNTU2404_SETTINGS,
+        manual=UBUNTU2404_MANUAL,
+        checks=UBUNTU2404_CHECKS,
+    ),
+    "rocky8": dict(
+        title="Rocky Linux 8",
+        script="standard_v8.sh",
+        usage="sudo bash standard_v8.sh   (실행 중 계정명·패스워드 입력)",
+        settings=ROCKY8_SETTINGS,
+        manual=ROCKY_MANUAL,
+        checks=ROCKY8_CHECKS,
+    ),
+    "rocky9": dict(
+        title="Rocky Linux 9",
+        script="standard_v9.sh",
+        usage="sudo bash standard_v9.sh   (실행 중 계정명·패스워드 입력)",
+        settings=ROCKY9_SETTINGS,
+        manual=ROCKY_MANUAL,
+        checks=ROCKY9_CHECKS,
+    ),
+}
+
+
+def detect_from_os_release(text):
+    """/etc/os-release 내용으로 프로파일 이름 추정."""
+    t = (text or "").lower()
+    if "ubuntu" in t:
+        return "ubuntu2404"
+    if "rocky" in t or "red hat" in t or "centos" in t or "almalinux" in t:
+        return "rocky9" if 'version_id="9' in t or "version_id=9" in t else "rocky8"
+    return None
