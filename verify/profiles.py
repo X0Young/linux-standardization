@@ -10,6 +10,7 @@
 checks 의 cmd 안에서는 아래 변수를 쓸 수 있다.
   $TU  : 관리 대상 일반 계정 목록 (UID 1000 이상, nobody 제외)
 """
+import re
 
 # =============================================================================
 # Ubuntu 24.04 LTS  —  standard_ubuntu2404.sh
@@ -532,10 +533,19 @@ PROFILES = {
 
 
 def detect_from_os_release(text):
-    """/etc/os-release 내용으로 프로파일 이름 추정."""
+    """/etc/os-release 내용으로 프로파일 이름 추정.
+
+    아래 형태를 모두 처리한다.
+      'ID=rocky VERSION_ID="9.8" ...'   (os-release 원문)
+      'rocky 9.8 Rocky Linux 9.8 ...'   (verify.py 의 probe 출력)
+      'rocky-9.8'                        (수집 결과의 META_OSID)
+    """
     t = (text or "").lower()
-    if "ubuntu" in t:
+    if "ubuntu" in t or "debian" in t:
         return "ubuntu2404"
-    if "rocky" in t or "red hat" in t or "centos" in t or "almalinux" in t:
-        return "rocky9" if 'version_id="9' in t or "version_id=9" in t else "rocky8"
+    if any(k in t for k in ("rocky", "red hat", "rhel", "centos", "almalinux")):
+        m = re.search(r'version_id\s*=\s*"?(\d+)', t)
+        if not m:
+            m = re.search(r'(?:rocky|rhel|centos|almalinux|linux)[-\s]+(\d+)', t)
+        return "rocky9" if (m and m.group(1) == "9") else "rocky8"
     return None
