@@ -152,11 +152,18 @@ tee "$PROFILED_FILE" >/dev/null <<'EOS'
 [ -n "${BASH_VERSION:-}" ] || return 0
 case $- in *i*) ;; *) return 0 ;; esac
 shopt -s histappend
-export HISTTIMEFORMAT="${HISTTIMEFORMAT:-%F %T }"
-export HISTSIZE=${HISTSIZE:-10000}
-export HISTFILESIZE=${HISTFILESIZE:-20000}
+# ※ 조건부 대입(${VAR:-기본값})을 쓰면 이후 실행되는 ~/.bashrc 의
+#   HISTSIZE=1000 등에 덮어써지므로 반드시 무조건 대입할 것
+export HISTTIMEFORMAT="%F %T "
+export HISTSIZE=10000
+export HISTFILESIZE=20000
 export HISTCONTROL=ignoredups:erasedups
-__append_hist_cmds() { history -a; history -n; }
+# ~/.bashrc 는 profile.d 보다 나중에 실행되므로, 프롬프트마다 재확정한다
+__append_hist_cmds() {
+  HISTSIZE=10000; HISTFILESIZE=20000
+  HISTTIMEFORMAT="%F %T "; HISTCONTROL=ignoredups:erasedups
+  history -a; history -n
+}
 case "${PROMPT_COMMAND:-}" in
   *__append_hist_cmds* ) ;;
   "" ) PROMPT_COMMAND="__append_hist_cmds" ;;
@@ -175,11 +182,15 @@ if ! grep -q '__append_hist_cmds' "$BASHRC_SYS"; then
 # === history hardening (ensure last) ===
 if [ -n "${BASH_VERSION:-}" ] && [[ $- == *i* ]]; then
   shopt -s histappend
-  export HISTTIMEFORMAT="${HISTTIMEFORMAT:-%F %T }"
-  export HISTSIZE=${HISTSIZE:-10000}
-  export HISTFILESIZE=${HISTFILESIZE:-20000}
+  export HISTTIMEFORMAT="%F %T "
+  export HISTSIZE=10000
+  export HISTFILESIZE=20000
   export HISTCONTROL=ignoredups:erasedups
-  __append_hist_cmds() { history -a; history -n; }
+  __append_hist_cmds() {
+    HISTSIZE=10000; HISTFILESIZE=20000
+    HISTTIMEFORMAT="%F %T "; HISTCONTROL=ignoredups:erasedups
+    history -a; history -n
+  }
   case "${PROMPT_COMMAND:-}" in
     *__append_hist_cmds* ) ;;
     "" ) PROMPT_COMMAND="__append_hist_cmds" ;;
@@ -192,6 +203,21 @@ EOS
   sed -i 's/\r$//' "$BASHRC_SYS" || true
 fi
 
+# --- 계정별 ~/.bashrc 의 HISTSIZE 재정의 무력화 ---------------------------
+# Ubuntu 기본 ~/.bashrc 에는 HISTSIZE=1000 / HISTFILESIZE=2000 / HISTCONTROL=ignoreboth
+# 이 무조건 대입으로 들어있고, ~/.bashrc 는 /etc/profile.d 보다 나중에 실행되므로
+# 주석 처리하지 않으면 위 전역 설정이 매번 덮어써진다. /etc/skel 도 함께 처리해
+# 향후 생성되는 계정에서 재발하지 않게 한다.
+for _rc in /etc/skel/.bashrc /root/.bashrc /home/*/.bashrc; do
+  [ -f "$_rc" ] || continue
+  if grep -qE '^\s*(HISTSIZE|HISTFILESIZE|HISTCONTROL)=' "$_rc"; then
+    cp -p "$_rc" "$desti_dir/$(echo "$_rc" | tr '/' '_')" 2>/dev/null || true
+    sed -i -E 's/^(\s*)(HISTSIZE|HISTFILESIZE|HISTCONTROL)=/\1# [hardening] &/' "$_rc"
+    echo "  HISTSIZE 재정의 주석 처리: $_rc"
+  fi
+done
+unset _rc
+
 if [ -n "${BASH_VERSION:-}" ] && [[ $- == *i* ]]; then
   source "$PROFILED_FILE" || true
   source "$BASHRC_SYS" || true
@@ -202,6 +228,7 @@ fi
   echo "HISTORY 전역 보강 적용됨:"
   echo " - /etc/profile.d/zzz-history.sh (login shell)"
   echo " - /etc/bash.bashrc tail (non-login shell)"
+  echo " - ~/.bashrc 의 HISTSIZE/HISTFILESIZE/HISTCONTROL 재정의 주석 처리"
   echo "현재 세션 값:"
   declare -p HISTTIMEFORMAT HISTSIZE HISTFILESIZE HISTCONTROL 2>/dev/null || true
   shopt histappend || true
@@ -248,13 +275,6 @@ echo "faillock 정책 설정 시작"
 
 FAILLOCK_CONF="/etc/security/faillock.conf"
 
-# pam_faillock.so 가 PAM 스택에 있는지 확인
-if ! grep -q 'pam_faillock\.so' /etc/pam.d/common-auth 2>/dev/null; then
-  echo "[경고] /etc/pam.d/common-auth 에 pam_faillock.so 가 없습니다."
-  echo "       faillock.conf 설정이 적용되지 않을 수 있습니다."
-  echo "       'pam-auth-update' 명령으로 faillock 모듈을 활성화하세요."
-fi
-
 if [ -f "$FAILLOCK_CONF" ]; then
   cp -p "$FAILLOCK_CONF" "$desti_dir/" 2>/dev/null || true
 
@@ -276,6 +296,55 @@ if [ -f "$FAILLOCK_CONF" ]; then
     echo 'unlock_time = 600' >> "$FAILLOCK_CONF"
   fi
 fi
+
+# --- pam_faillock 을 PAM 스택에 실제 등록 -----------------------------------
+# Ubuntu 24.04 에는 /usr/share/pam-configs/faillock 프로파일이 없어
+# 'pam-auth-update' 만으로는 활성화되지 않는다. common-auth/common-account 를
+# 직접 편집해야 faillock.conf 값이 실제 동작한다.
+#
+# ※ 이 구간을 잘못 적용하면 sudo/ssh 를 포함한 모든 인증이 막힌다.
+#   반드시 별도 root 세션을 열어둔 상태에서 실행할 것.
+#   복구: cp $desti_dir/common-auth /etc/pam.d/common-auth
+COMMON_AUTH="/etc/pam.d/common-auth"
+COMMON_ACCT="/etc/pam.d/common-account"
+
+if ! grep -q 'pam_faillock\.so' "$COMMON_AUTH" 2>/dev/null; then
+  cp -p "$COMMON_AUTH" "$desti_dir/common-auth.pre-faillock" 2>/dev/null || true
+
+  # pam_unix.so 앞에 preauth, 뒤에 authfail/authsucc 를 삽입한다.
+  # [success=1 default=ignore] pam_unix.so 의 점프(=1)는 authfail 한 줄을
+  # 건너뛰고 authsucc 로 착지하도록 계산된 값이므로 순서를 바꾸면 안 된다.
+  if grep -qE '^\s*auth\s+\[success=1\s+default=ignore\]\s+pam_unix\.so' "$COMMON_AUTH"; then
+    sed -i -E '/^\s*auth\s+\[success=1\s+default=ignore\]\s+pam_unix\.so/i auth\trequired\t\t\tpam_faillock.so preauth' "$COMMON_AUTH"
+    sed -i -E '/^\s*auth\s+\[success=1\s+default=ignore\]\s+pam_unix\.so/a auth\t[default=die]\t\t\tpam_faillock.so authfail\nauth\tsufficient\t\t\tpam_faillock.so authsucc' "$COMMON_AUTH"
+    echo "[적용] $COMMON_AUTH 에 pam_faillock 등록"
+  else
+    echo "[경고] $COMMON_AUTH 에서 표준 pam_unix 행을 찾지 못해 자동 등록을 건너뜁니다."
+    echo "       수동으로 pam_faillock preauth/authfail/authsucc 를 추가하세요."
+  fi
+else
+  echo "[확인] $COMMON_AUTH 에 pam_faillock 이미 등록됨"
+fi
+
+if ! grep -q 'pam_faillock\.so' "$COMMON_ACCT" 2>/dev/null; then
+  cp -p "$COMMON_ACCT" "$desti_dir/common-account.pre-faillock" 2>/dev/null || true
+  sed -i -E '0,/^\s*account\s+/s//account\trequired\t\t\tpam_faillock.so\n&/' "$COMMON_ACCT"
+  echo "[적용] $COMMON_ACCT 에 pam_faillock 등록"
+fi
+
+# 등록 결과 검증 — 필수 3개 지시자가 모두 있어야 정상 동작
+_fl_ok=1
+for _d in preauth authfail authsucc; do
+  grep -q "pam_faillock\.so $_d" "$COMMON_AUTH" || _fl_ok=0
+done
+if [ "$_fl_ok" -eq 1 ]; then
+  echo "[검증] faillock PAM 스택 정상 (preauth/authfail/authsucc)"
+  faillock >/dev/null 2>&1 && echo "[검증] faillock 조회 정상"
+else
+  echo "!! [경고] faillock PAM 스택이 불완전합니다. 아래로 즉시 복구하세요:"
+  echo "   cp $desti_dir/common-auth.pre-faillock $COMMON_AUTH"
+fi
+unset _fl_ok _d
 
 echo -e "\nfaillock 정책 설정 완료\n"
 #=============================================================================
@@ -444,16 +513,35 @@ chmod 0600 /var/log/wtmp 2>/dev/null || true
 chown root:utmp /var/log/btmp 2>/dev/null || true
 chmod 0600 /var/log/btmp 2>/dev/null || true
 
+# chmod 만으로는 재부팅 시 원복된다.
+# /usr/lib/tmpfiles.d/var.conf 의 'f /var/log/wtmp 0664 root utmp -' 규칙을
+# systemd-tmpfiles 가 부팅마다 재적용하기 때문. /etc/tmpfiles.d 가 우선하므로
+# 같은 경로 규칙을 0600 으로 덮어써서 영구 고정한다.
+tee /etc/tmpfiles.d/zzz-wtmp.conf >/dev/null <<'EOS'
+# /usr/lib/tmpfiles.d/var.conf 의 wtmp/btmp 권한 규칙을 덮어쓴다 (감사 정책 0600)
+f /var/log/wtmp 0600 root utmp -
+f /var/log/btmp 0600 root utmp -
+EOS
+chown root:root /etc/tmpfiles.d/zzz-wtmp.conf
+chmod 0644 /etc/tmpfiles.d/zzz-wtmp.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/zzz-wtmp.conf 2>/dev/null || true
+
 # Ubuntu: auth.log (Rocky/RHEL: /var/log/secure)
 [ -f /var/log/auth.log ] && chmod 0640 /var/log/auth.log || true
 # Ubuntu 24.04는 /var/log/messages 기본 없음 (syslog/journald 사용)
 [ -f /var/log/messages ] && chmod 0644 /var/log/messages || true
 [ -f /var/log/syslog   ] && chmod 0640 /var/log/syslog   || true
 
-for f in /etc/passwd.* /etc/group.* /etc/shadow.* /etc/hosts.* /etc/services.*; do
+# 계정 관련 백업 파일 권한
+# ※ Ubuntu 의 백업 파일명은 'passwd-' (하이픈) 이다. 과거 '/etc/passwd.*' (점)
+#   글로브를 쓰면 어느 파일에도 매칭되지 않아 하드닝이 적용되지 않는다.
+for f in /etc/passwd- /etc/group- /etc/shadow- /etc/gshadow- \
+         /etc/passwd.* /etc/group.* /etc/shadow.* /etc/gshadow.* \
+         /etc/hosts.* /etc/services.*; do
   [ -e "$f" ] || continue
   chown root:root "$f" || true
   chmod 0600 "$f" || true
+  echo "  백업 파일 권한 적용: $f"
 done
 
 echo -e "\n주요 파일 권한/소유자 하드닝 완료\n"
@@ -480,6 +568,25 @@ if [ -f "$PAM_LOGIN" ]; then
     fi
   else
     echo "[확인] pam_securetty.so 이미 존재"
+    # pam_securetty 는 있는데 /etc/securetty 가 없으면 '허용 콘솔 목록이 비어있는'
+    # 상태가 되어 콘솔 root 로그인이 전면 차단된다(원격 SSH 장애 시 복구 불가).
+    # 표준 콘솔 목록을 생성해 의도대로 '콘솔만 허용, pts 차단' 상태로 만든다.
+    if [ ! -f "$SECURETTY" ]; then
+      tee "$SECURETTY" >/dev/null <<'EOS'
+# root 로그인을 허용할 터미널 목록 (pts/* 는 의도적으로 제외)
+console
+tty1
+tty2
+tty3
+tty4
+tty5
+tty6
+ttyS0
+EOS
+      chown root:root "$SECURETTY"
+      chmod 0600 "$SECURETTY"
+      echo "[적용] pam_securetty 활성 상태에서 /etc/securetty 누락 → 표준 콘솔 목록 생성"
+    fi
   fi
 fi
 
@@ -500,5 +607,18 @@ echo "======================================================"
 echo " ※ 아래 작업은 수동으로 진행하세요:"
 echo "   1. 패스워드 설정:  sudo passwd $username"
 echo "   2. SSH 재접속 포트 확인: 24477"
-echo "   3. faillock PAM 활성화 확인: grep pam_faillock /etc/pam.d/common-auth"
+echo "      (현재 세션을 닫기 전에 반드시 새 터미널에서 접속 확인)"
+echo ""
+echo " ※ 인증 관련 설정이 변경되었습니다. 현재 root 세션을 유지한 채"
+echo "   아래 3가지를 반드시 검증하세요:"
+echo "   - faillock:  grep pam_faillock /etc/pam.d/common-auth"
+echo "   - 로그인:    새 터미널에서 su - $username  (정상 로그인되어야 함)"
+echo "   - sudo:      새 터미널에서 sudo -v         (정상 동작해야 함)"
+echo ""
+echo "   문제 발생 시 즉시 복구:"
+echo "     cp $desti_dir/common-auth.pre-faillock /etc/pam.d/common-auth"
+echo "     cp $desti_dir/common-account.pre-faillock /etc/pam.d/common-account"
+echo ""
+echo " ※ 변경 적용을 위해 기존 로그인 세션은 재접속이 필요합니다"
+echo "   (HISTORY/TMOUT/umask 는 새 셸부터 반영)"
 echo "======================================================"
