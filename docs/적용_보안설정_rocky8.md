@@ -5,7 +5,7 @@
 | 스크립트 | `standard_v8.sh` |
 | 대상 OS | Rocky Linux 8 |
 | 실행 방법 | `sudo bash standard_v8.sh   (실행 중 계정명·패스워드 입력)` |
-| 설정 항목 수 | 34개 |
+| 설정 항목 수 | 41개 |
 
 신규 서버 구축 시 본 스크립트를 1회 실행하여 아래 설정을 일괄 적용합니다.
 
@@ -25,6 +25,7 @@
 | 시간 동기화 서비스 활성화 | chronyd 상시 기동 (부팅 시 자동 시작) | `chronyd.service` |
 | 사내 NTP 서버 지정 | 192.168.5.55 | `/etc/chrony.conf` |
 | 외부 NTP 서버 차단 | 기본 pool (2.rocky.pool.ntp.org) 주석 처리 | `/etc/chrony.conf` |
+| 표준시 설정 | Asia/Seoul (KST, +0900) | `timedatectl` |
 
 ## 계정 및 원격 접속
 
@@ -49,6 +50,8 @@
 | 복잡도 | 숫자·특수문자·대문자·소문자 각 1자 이상 | `/etc/security/pwquality.conf` |
 | 재사용 제한 | 최근 2개 패스워드 재사용 금지<br>(authselect 적용 이후에 반영) | `/etc/pam.d/system-auth`<br>`/etc/pam.d/password-auth` |
 | 최대 사용 기간 | 90일 | `/etc/login.defs` |
+| 최소 사용 기간 | 7일 (변경 후 7일간 재변경 불가) | `/etc/login.defs` |
+| 기존 계정 일괄 적용 | UID 1000 이상 계정에 90일/7일 정책 소급 적용<br>※ 적용 시 즉시 만료되는 계정은 건너뛰고 목록만 안내<br>  (서비스 계정 로그인 차단 방지) | `chage` |
 
 ## 계정 잠금
 
@@ -82,7 +85,11 @@
 | 계정 정보 파일 | /etc/passwd, /etc/group → 644 (root:root) | - |
 | 패스워드 파일 | /etc/shadow → 400 (root:root) | - |
 | 네트워크 설정 파일 | /etc/hosts, /etc/services → 644 | - |
-| 프로파일 | /etc/profile → 755 | - |
+| 프로파일 / PAM 설정 | /etc/profile → 755<br>system-auth, password-auth, su, login → 644 | - |
+| 관리 명령어 | last, ifconfig → 700 (root 전용 실행) | - |
+| cron 접근 제어 | cron.allow, cron.deny → 600<br>※ cron.allow 생성 시 root + 기존 crontab 보유 계정을 포함<br>  (빈 파일로 만들면 기존 사용자가 전부 차단됨) | - |
+| 접속 기록 파일 | wtmp, btmp → 600<br>(재부팅 후 원복 방지를 위해 tmpfiles 규칙으로 고정) | `/etc/tmpfiles.d/zzz-wtmp.conf` |
+| 로그 파일 | secure, messages → 600 (존재 시)<br>journald 전용 환경에서는 해당 없음 | - |
 | 계정 백업 파일 | passwd-, group-, shadow- → 600 | - |
 | 신규 파일 기본 권한 | umask 027 | `/etc/profile.d/zzz-umask.sh` |
 
@@ -111,6 +118,7 @@
 | SSH 포트 확인 | `ss -tlnp | grep sshd` | 방화벽은 24477 을 열지만 스크립트가 sshd 포트를 바꾸지는 않음.<br>포트 변경이 필요하면 sshd_config 수정 + semanage port 등록 필요 |
 | SELinux 포트 등록 | `semanage port -a -t ssh_port_t -p tcp 24477` | SSH 포트를 변경하는 경우에만 필요 |
 | 접속 확인 | `새 터미널에서 SSH 재접속` | 현재 세션을 닫기 전에 반드시 확인 |
+| 만료 계정 선조치 | `passwd <계정> && chage -M 90 -m 7 <계정>` | 스크립트가 '즉시 만료됨'으로 건너뛴 계정이 있으면 수행 |
 
 ---
 

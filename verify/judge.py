@@ -109,6 +109,13 @@ def judge(rule, out):
     if rule == "logperm":
         return CHECK if "NOT_EXIST" in o else (APPLIED if " 640" in o else NOT_APPLIED)
 
+    if rule == "logperm_rocky":
+        lines = [l for l in o.splitlines() if l.strip()]
+        if not lines or all("NOT_EXIST" in l for l in lines):
+            return NA
+        real = [l for l in lines if "NOT_EXIST" not in l]
+        return APPLIED if all(l.strip().endswith(" 600") for l in real) else NOT_APPLIED
+
     if rule == "backupperm":
         lines = [l for l in o.splitlines() if l.strip() and l.strip() != "EOL"]
         if not lines:

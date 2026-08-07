@@ -384,6 +384,182 @@ faillock || true
 faillock --user "$username" || true
 echo "==============================="
 
+
+#====[ H) 추가 하드닝 (Ubuntu 표준과 항목 맞춤) ]==============================
+# ※ 이 구간은 계정 만료·crontab·명령 실행 권한을 건드리므로
+#   로그인이나 서비스가 끊기지 않도록 아래 원칙을 지킨다.
+#     - 계정을 '즉시 만료' 상태로 만들지 않는다 (SSH 키 로그인까지 막힌다)
+#     - 빈 /etc/cron.allow 를 만들어 기존 crontab 사용자를 차단하지 않는다
+#     - 파일이 존재할 때만 권한을 조정한다
+echo "추가 하드닝 시작 (표준시 / 만료정책 / cron / 접속기록 / 로그 / 명령어 / PAM 권한)"
+
+# H-1) 표준시 (Asia/Seoul)
+if timedatectl set-timezone Asia/Seoul 2>/dev/null; then
+  echo " - 표준시 Asia/Seoul 적용"
+else
+  echo " - [건너뜀] 표준시 설정 실패"
+fi
+
+# H-2) 패스워드 최소 사용 기간 (변경 직후 재변경으로 이력 정책을 우회하는 것 방지)
+if grep -qE '^[[:space:]]*#?[[:space:]]*PASS_MIN_DAYS' /etc/login.defs; then
+  sed -ri 's/^#?[[:space:]]*PASS_MIN_DAYS[[:space:]]+.*/PASS_MIN_DAYS   7/' /etc/login.defs
+else
+  printf 'PASS_MIN_DAYS   7\n' >> /etc/login.defs
+fi
+echo " - PASS_MIN_DAYS 7 적용"
+
+# H-3) 기존 계정에 만료 정책 소급 적용
+# ※ 마지막 변경일이 90일을 넘은 계정에 -M 90 을 걸면 그 즉시 만료되어
+#   패스워드는 물론 SSH 키 로그인까지 거부된다(PAM account 단계에서 차단).
+#   서비스 계정이 여기 걸리면 운영이 멈추므로, 해당 계정은 적용하지 않고
+#   목록만 출력해 담당자가 판단하도록 한다.
+_today=$(( $(date +%s) / 86400 ))
+_skipped=""
+for _u in $(awk -F: '$3>=1000 && $3<65534 && $1!="nobody" {print $1}' /etc/passwd); do
+  _pw=$(awk -F: -v u="$_u" '$1==u{print $2}' /etc/shadow 2>/dev/null)
+  case "$_pw" in
+    ''|'!'*|'*'*)
+      echo "   건너뜀(패스워드 미설정 또는 잠금): $_u"; continue ;;
+  esac
+  _last=$(awk -F: -v u="$_u" '$1==u{print $3}' /etc/shadow 2>/dev/null)
+  if [ -n "$_last" ] && [ "$_last" -gt 0 ] 2>/dev/null; then
+    _age=$(( _today - _last ))
+    if [ "$_age" -ge 90 ]; then
+      echo "   !! 건너뜀(적용 시 즉시 만료됨 · 최종변경 ${_age}일 경과): $_u"
+      _skipped="$_skipped $_u"
+      continue
+    fi
+  else
+    echo "   건너뜀(최종 변경일 불명): $_u"; continue
+  fi
+  chage -M 90 -m 7 "$_u" 2>/dev/null && echo "   적용: $_u" || echo "   실패(무시): $_u"
+done
+if [ -n "$_skipped" ]; then
+  echo "   ※ 아래 계정은 패스워드를 먼저 변경한 뒤 정책을 적용하세요:"
+  echo "      passwd <계정> && chage -M 90 -m 7 <계정>"
+  echo "     대상:$_skipped"
+fi
+unset _today _u _pw _last _age _skipped
+
+# H-4) cron 접근 제어
+# ※ /etc/cron.allow 가 생기면 '여기 없는 계정은 crontab 사용 불가' 가 된다.
+#   빈 파일로 만들면 기존 crontab 사용자가 전부 막히므로,
+#   root 와 현재 crontab 을 보유한 계정을 담아 기능을 유지한다.
+if [ ! -f /etc/cron.allow ]; then
+  {
+    echo root
+    ls /var/spool/cron 2>/dev/null
+  } | awk 'NF' | sort -u > /etc/cron.allow
+  echo " - /etc/cron.allow 생성 (허용 계정 $(wc -l < /etc/cron.allow)개: $(tr '\n' ' ' < /etc/cron.allow))"
+fi
+chown root:root /etc/cron.allow 2>/dev/null || true
+chmod 0600 /etc/cron.allow 2>/dev/null || true
+if [ -f /etc/cron.deny ]; then
+  chown root:root /etc/cron.deny 2>/dev/null || true
+  chmod 0600 /etc/cron.deny 2>/dev/null || true
+fi
+echo " - cron 접근 제어 파일 권한 600 적용"
+
+# H-5) 접속 기록 파일 (wtmp/btmp)
+# ※ chmod 만으로는 재부팅 시 원복된다.
+#   /usr/lib/tmpfiles.d/var.conf 의 0664/0660 규칙을 systemd-tmpfiles 가
+#   부팅마다 재적용하기 때문. /etc/tmpfiles.d 가 우선하므로 덮어써 고정한다.
+chown root:utmp /var/log/wtmp 2>/dev/null || true
+chmod 0600 /var/log/wtmp 2>/dev/null || true
+chown root:utmp /var/log/btmp 2>/dev/null || true
+chmod 0600 /var/log/btmp 2>/dev/null || true
+cat <<'EOS' > /etc/tmpfiles.d/zzz-wtmp.conf
+# /usr/lib/tmpfiles.d/var.conf 의 wtmp/btmp 권한 규칙을 덮어쓴다 (감사 정책 0600)
+f /var/log/wtmp 0600 root utmp -
+f /var/log/btmp 0600 root utmp -
+EOS
+chown root:root /etc/tmpfiles.d/zzz-wtmp.conf
+chmod 0644 /etc/tmpfiles.d/zzz-wtmp.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/zzz-wtmp.conf 2>/dev/null || true
+echo " - wtmp/btmp 600 적용 및 재부팅 후 유지 규칙 생성"
+echo "   ※ 일반 사용자의 last/who 출력이 제한됩니다"
+
+# H-6) 로그 파일 권한 (존재할 때만)
+# ※ Rocky 는 auth.log/syslog 가 아니라 secure/messages 다.
+#   journald 전용 환경에서는 파일이 없으므로 건너뛴다.
+for _f in /var/log/secure /var/log/messages; do
+  if [ -f "$_f" ]; then
+    chown root:root "$_f" 2>/dev/null || true
+    chmod 0600 "$_f" 2>/dev/null || true
+    echo " - $_f 권한 600 적용"
+  else
+    echo " - [해당없음] $_f 없음 (journald 전용 환경)"
+  fi
+done
+unset _f
+
+# H-7) 관리 명령어 root 전용 실행
+[ -f /usr/bin/last ]       && chmod 0700 /usr/bin/last       2>/dev/null && echo " - /usr/bin/last 700 적용"
+[ -f /usr/sbin/ifconfig ]  && chmod 0700 /usr/sbin/ifconfig  2>/dev/null && echo " - /usr/sbin/ifconfig 700 적용"
+
+# H-8) PAM 설정 파일 권한
+for _f in /etc/pam.d/system-auth /etc/pam.d/password-auth /etc/pam.d/su /etc/pam.d/login; do
+  [ -e "$_f" ] || continue
+  chown root:root "$_f" 2>/dev/null || true
+  chmod 0644 "$_f" 2>/dev/null || true
+done
+unset _f
+echo " - PAM 설정 파일 권한 644 적용"
+
+echo "추가 하드닝 완료"
+
+#====[ I) 로그인 영향 자가 점검 ]=============================================
+# 인증·로그인 경로를 건드렸으므로, 세션을 닫기 전에 문제를 잡아낸다.
+echo
+echo "==== [로그인 영향 자가 점검] ===="
+_login_warn=0
+
+# PAM 파일 형식 검사 (첫 필드가 auth/account/password/session 이어야 한다)
+for _f in /etc/pam.d/system-auth /etc/pam.d/password-auth /etc/pam.d/su /etc/pam.d/login; do
+  [ -f "$_f" ] || continue
+  _bad=$(grep -vE '^[[:space:]]*(#|$)' "$_f" | grep -vE '^[[:space:]]*-?(auth|account|password|session)[[:space:]]' || true)
+  if [ -n "$_bad" ]; then
+    echo " !! $_f 에 형식이 잘못된 줄이 있습니다:"; echo "$_bad" | sed 's/^/      /'
+    _login_warn=1
+  fi
+done
+
+# 로그인 시 읽히는 스크립트 문법 검사
+bash -n /etc/profile 2>/dev/null || { echo " !! /etc/profile 문법 오류"; _login_warn=1; }
+for _f in /etc/profile.d/*.sh; do
+  [ -f "$_f" ] || continue
+  bash -n "$_f" 2>/dev/null || { echo " !! $_f 문법 오류"; _login_warn=1; }
+done
+
+# sshd 설정 검증
+sshd -t 2>/dev/null || { echo " !! sshd 설정 오류 (원격 접속 불가 위험)"; _login_warn=1; }
+
+# 즉시 만료된 계정 확인
+_expired=$(awk -F: -v t="$(( $(date +%s) / 86400 ))" \
+  '$2 ~ /^\$/ && $5 ~ /^[0-9]+$/ && $5 > 0 && $3 ~ /^[0-9]+$/ && (t - $3) > $5 {print $1}' /etc/shadow 2>/dev/null)
+if [ -n "$_expired" ]; then
+  echo " !! 패스워드가 만료되어 로그인이 거부될 수 있는 계정:"
+  echo "$_expired" | sed 's/^/      /'
+  echo "      복구: chage -d $(date +%Y-%m-%d) <계정>  또는  passwd <계정>"
+  _login_warn=1
+fi
+
+# securetty 정합성 (pam_securetty 가 있는데 목록이 없으면 콘솔 root 로그인 차단)
+if grep -q pam_securetty.so /etc/pam.d/login 2>/dev/null && [ ! -f /etc/securetty ]; then
+  echo " !! pam_securetty 가 적용되어 있으나 /etc/securetty 가 없습니다 (콘솔 root 로그인 차단)"
+  _login_warn=1
+fi
+
+if [ "$_login_warn" -eq 0 ]; then
+  echo " 이상 없음 — 로그인 경로에 문제가 될 설정은 발견되지 않았습니다."
+else
+  echo
+  echo " !! 위 항목을 먼저 해결하세요. 현재 세션을 닫기 전에 반드시"
+  echo "    새 터미널에서 SSH 접속과 sudo 동작을 확인하십시오."
+fi
+echo "================================="
+unset _f _bad _expired _login_warn
+
 echo "=== [추가 하드닝] Rocky Linux 8 보안 설정 완료 ==="
 ###############################################################################
 

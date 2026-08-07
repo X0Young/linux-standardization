@@ -35,8 +35,8 @@ sudo bash standard_v9.sh
 OS별 상세 목록은 아래 문서 참고. 엑셀 버전은 `xlsx/` 에 동일한 내용으로 있다.
 
 - [Ubuntu 24.04](docs/적용_보안설정_ubuntu2404.md) — 44개 항목
-- [Rocky Linux 8](docs/적용_보안설정_rocky8.md) — 34개 항목
-- [Rocky Linux 9](docs/적용_보안설정_rocky9.md) — 34개 항목
+- [Rocky Linux 8](docs/적용_보안설정_rocky8.md) — 41개 항목
+- [Rocky Linux 9](docs/적용_보안설정_rocky9.md) — 41개 항목
 
 주요 항목 요약:
 
