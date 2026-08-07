@@ -85,6 +85,40 @@ python3 verify.py --settings-only --profile rocky9 --outdir ../docs
 | 확인필요 | 자동 판정 불가 — 담당자 확인 필요 |
 | 해당없음 | 미설치 / 미해당 환경 |
 
+## 이미 스크립트를 돌린 서버 보정 — `remediate.sh`
+
+구버전 표준화 스크립트의 결함으로 **실제로는 적용되지 않은 항목만** 골라 보정한다.
+전체 스크립트를 다시 돌리지 않아도 되는 경우에 사용한다.
+
+```bash
+scp -P 24477 remediate.sh <계정>@<서버>:/tmp/
+ssh -p 24477 <계정>@<서버>
+
+sudo bash /tmp/remediate.sh --dry-run   # 무엇이 바뀔지 먼저 확인
+sudo bash /tmp/remediate.sh             # 실제 적용
+```
+
+보정 대상:
+
+| 항목 | 왜 적용되지 않았나 |
+|---|---|
+| 계정 잠금 실제 활성화 | 설정값만 넣고 PAM 스택에 등록하지 않았음 |
+| 명령 이력 보관량 | `${HISTSIZE:-10000}` 조건부 대입이 `~/.bashrc` 에 덮어써짐 |
+| wtmp / btmp 권한 | `systemd-tmpfiles` 가 부팅마다 원복 |
+| 계정 백업 파일 권한 | 글로브가 `passwd.*`(점) 이라 `passwd-`(하이픈)에 매칭 안 됨 |
+| (Rocky) su 사용 제한 | `sed` 에 `s` 가 빠져 치환이 되지 않았음 |
+| (Rocky) `/etc/profile` 파손 | 행 번호 수정 + `readonly TMOUT` 재대입 흔적 정리 |
+| (Rocky) securetty | `pam_securetty` 만 있고 목록 파일이 없어 콘솔 로그인 차단 |
+
+멱등성이 있어 여러 번 실행해도 결과가 같다. 변경 전 원본은
+`/root/backup/<날짜>-remediate/` (Rocky 는 `/home/backup/...`) 에 보관된다.
+
+종료 전 **로그인 영향 자가 점검**을 수행한다 — PAM 파일 형식, `/etc/profile`
+문법, `sshd -t`, 만료된 계정, `securetty` 정합성.
+
+> 인증 경로를 변경하므로 **별도 root 세션을 열어둔 채로 실행**하고,
+> 현재 세션을 닫기 전에 새 터미널에서 접속과 `sudo` 동작을 확인할 것.
+
 ## 파일 구성
 
 | 파일 | 역할 |
@@ -93,6 +127,7 @@ python3 verify.py --settings-only --profile rocky9 --outdir ../docs
 | `profiles.py` | OS별 적용 설정 목록 및 점검 항목 정의 |
 | `judge.py` | 수집 결과 자동 판정 규칙 |
 | `report.py` | 엑셀·마크다운 생성 |
+| `remediate.sh` | 이미 적용된 서버의 누락 항목 보정 |
 
 점검 항목을 추가하려면 `profiles.py` 의 `checks` 에 항목을 넣고, 필요하면 `judge.py` 에 판정 규칙을 추가한다.
 
