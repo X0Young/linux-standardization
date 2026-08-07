@@ -35,8 +35,8 @@ sudo bash standard_v9.sh
 OS별 상세 목록은 아래 문서 참고. 엑셀 버전은 `xlsx/` 에 동일한 내용으로 있다.
 
 - [Ubuntu 24.04](docs/적용_보안설정_ubuntu2404.md) — 44개 항목
-- [Rocky Linux 8](docs/적용_보안설정_rocky8.md) — 33개 항목
-- [Rocky Linux 9](docs/적용_보안설정_rocky9.md) — 33개 항목
+- [Rocky Linux 8](docs/적용_보안설정_rocky8.md) — 34개 항목
+- [Rocky Linux 9](docs/적용_보안설정_rocky9.md) — 34개 항목
 
 주요 항목 요약:
 
@@ -46,7 +46,7 @@ OS별 상세 목록은 아래 문서 참고. 엑셀 버전은 `xlsx/` 에 동일
 | 계정·원격 접속 | 관리용 개인 계정 생성, root 원격 로그인 차단, SSH 포트 24477 (Ubuntu) |
 | 관리자 권한 | su 사용을 sudo/wheel 그룹으로 제한, `/bin/su` 4750 |
 | 패스워드 정책 | 8자 이상 + 복잡도 4종, 재사용 2회 금지, 최대 90일 |
-| 계정 잠금 | 로그인 실패 시 잠금 (Ubuntu 5회 / Rocky 3회), 600초 후 해제 |
+| 계정 잠금 | 로그인 실패 시 잠금 (Ubuntu 5회 / Rocky 3회), 900초 유지 · 600초 후 해제 |
 | 방화벽 | 기본 차단 정책, 24477/tcp 만 허용 |
 | 세션·이력 | 유휴 30분 자동 종료, 명령 이력 1만건 + 실행 시각 기록 |
 | 파일 권한 | 계정·인증 관련 주요 파일 권한 하드닝, umask 027 |
@@ -60,6 +60,7 @@ OS별 상세 목록은 아래 문서 참고. 엑셀 버전은 `xlsx/` 에 동일
 | 관리자 그룹 | `sudo` | `wheel` |
 | 방화벽 | UFW | firewalld (default zone = drop) |
 | 계정 잠금 | `pam_faillock` 직접 등록, 5회 | `authselect with-faillock`, 3회 |
+| 유휴 세션 종료 | 30분 | 30분 |
 | 패스워드 최소 사용 기간 | 7일 | 미설정 |
 | `/etc/shadow` | 640 (root:shadow) | 400 (root:root) |
 | 표준시 | Asia/Seoul 설정 | 미설정 |

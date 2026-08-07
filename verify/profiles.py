@@ -276,11 +276,12 @@ ROCKY_COMMON_SETTINGS = [
 
  ("패스워드 정책", "최소 길이", "8자 이상", "/etc/security/pwquality.conf"),
  ("패스워드 정책", "복잡도", "숫자·특수문자·대문자·소문자 각 1자 이상", "/etc/security/pwquality.conf"),
- ("패스워드 정책", "재사용 제한", "최근 2개 패스워드 재사용 금지", "/etc/pam.d/system-auth\n/etc/pam.d/password-auth"),
+ ("패스워드 정책", "재사용 제한", "최근 2개 패스워드 재사용 금지\n(authselect 적용 이후에 반영)", "/etc/pam.d/system-auth\n/etc/pam.d/password-auth"),
  ("패스워드 정책", "최대 사용 기간", "90일", "/etc/login.defs"),
 
  ("계정 잠금", "잠금 기능 활성화", "authselect with-faillock 기능 활성화", "authselect"),
  ("계정 잠금", "로그인 실패 잠금", "3회 연속 실패 시 계정 잠금", "/etc/security/faillock.conf"),
+ ("계정 잠금", "실패 카운트 유지 시간", "900초 (15분)", "/etc/security/faillock.conf"),
  ("계정 잠금", "잠금 해제 시간", "600초 (10분) 경과 후 자동 해제", "/etc/security/faillock.conf"),
  ("계정 잠금", "실패 기록 표시 억제", "silent 옵션 활성화", "/etc/security/faillock.conf"),
 
@@ -302,13 +303,13 @@ ROCKY_COMMON_SETTINGS = [
 ]
 
 ROCKY8_SETTINGS = ROCKY_COMMON_SETTINGS + [
- ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃", "/etc/profile"),
- ("환경변수 / 콘솔", "root 콘솔 로그인 제한", "pam_securetty 적용 및 원격 터미널(pts) 제외", "/etc/pam.d/login\n/etc/securetty"),
+ ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃 (사용자 변경 불가)", "/etc/profile.d/zzz-timeout.sh"),
+ ("환경변수 / 콘솔", "root 콘솔 로그인 제한", "허용 터미널을 물리 콘솔로 한정, 원격 터미널(pts) 제외\n(목록 파일이 없으면 표준 콘솔 목록을 생성한 뒤 적용)", "/etc/pam.d/login\n/etc/securetty"),
 ]
 
 ROCKY9_SETTINGS = ROCKY_COMMON_SETTINGS + [
  ("세션 및 명령 이력", "유휴 세션 자동 종료", "1800초(30분) 무입력 시 로그아웃 (사용자 변경 불가)", "/etc/profile.d/zzz-timeout.sh"),
- ("계정 및 원격 접속", "SSH 설정 일괄 적용", "sshd_config.d/*.conf 의 PermitRootLogin 까지 함께 처리 후 reload", "/etc/ssh/sshd_config.d/"),
+ ("계정 및 원격 접속", "SSH 설정 검증 후 반영", "sshd_config.d/*.conf 까지 일괄 처리하고\nsshd -t 통과 시에만 reload", "/etc/ssh/sshd_config.d/"),
 ]
 
 ROCKY_MANUAL = [
@@ -389,6 +390,9 @@ _ROCKY_COMMON_CHECKS = [
  dict(sec="계정 잠금", no="6-4", item="잠금 해제 시간",
       cmd="grep -nE '^\\s*unlock_time' /etc/security/faillock.conf || echo 'NOT_SET'",
       exp="unlock_time = 600", judge="regex:unlock_time\\s*=\\s*600"),
+ dict(sec="계정 잠금", no="6-7", item="실패 카운트 유지 시간",
+      cmd="grep -nE '^\\s*fail_interval' /etc/security/faillock.conf || echo 'NOT_SET'",
+      exp="fail_interval = 900", judge="regex:fail_interval\\s*=\\s*900"),
  dict(sec="계정 잠금", no="6-5", item="실패 기록 표시 억제",
       cmd="grep -nE '^\\s*silent' /etc/security/faillock.conf || echo 'NOT_SET'",
       exp="silent", judge="absent:NOT_SET"),
@@ -444,9 +448,9 @@ _ROCKY_COMMON_CHECKS = [
 ]
 
 ROCKY8_CHECKS = _ROCKY_COMMON_CHECKS + [
- dict(sec="세션 및 명령 이력", no="8-4", item="유휴 세션 자동 종료 설정",
-      cmd="grep -nE '^\\s*(export\\s+)?TMOUT' /etc/profile /etc/profile.d/*.sh 2>/dev/null || echo 'NOT_SET'",
-      exp="TMOUT=1800 + readonly", judge="absent:NOT_SET"),
+ dict(sec="세션 및 명령 이력", no="8-4", item="유휴 세션 종료 설정 배포",
+      cmd="stat -c '%n %U:%G %a' /etc/profile.d/zzz-timeout.sh 2>&1; echo '--- /etc/profile 직접 수정 흔적:'; grep -nE '^\\s*(export\\s+)?TMOUT|HISTTIMEFORMAT' /etc/profile 2>/dev/null || echo '(없음 - 정상)'",
+      exp="profile.d 배포 + /etc/profile 미수정", judge="contains:root:root 644"),
  dict(sec="세션 및 명령 이력", no="8-5", item="유휴 세션 자동 종료 적용",
       cmd="bash -lic 'declare -p TMOUT' 2>/dev/null || echo 'NOT_SET'",
       exp="declare -r TMOUT=\"1800\"", judge="tmout"),

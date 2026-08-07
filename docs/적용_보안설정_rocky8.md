@@ -5,7 +5,7 @@
 | 스크립트 | `standard_v8.sh` |
 | 대상 OS | Rocky Linux 8 |
 | 실행 방법 | `sudo bash standard_v8.sh   (실행 중 계정명·패스워드 입력)` |
-| 설정 항목 수 | 33개 |
+| 설정 항목 수 | 34개 |
 
 신규 서버 구축 시 본 스크립트를 1회 실행하여 아래 설정을 일괄 적용합니다.
 
@@ -47,7 +47,7 @@
 |---|---|---|
 | 최소 길이 | 8자 이상 | `/etc/security/pwquality.conf` |
 | 복잡도 | 숫자·특수문자·대문자·소문자 각 1자 이상 | `/etc/security/pwquality.conf` |
-| 재사용 제한 | 최근 2개 패스워드 재사용 금지 | `/etc/pam.d/system-auth`<br>`/etc/pam.d/password-auth` |
+| 재사용 제한 | 최근 2개 패스워드 재사용 금지<br>(authselect 적용 이후에 반영) | `/etc/pam.d/system-auth`<br>`/etc/pam.d/password-auth` |
 | 최대 사용 기간 | 90일 | `/etc/login.defs` |
 
 ## 계정 잠금
@@ -56,6 +56,7 @@
 |---|---|---|
 | 잠금 기능 활성화 | authselect with-faillock 기능 활성화 | `authselect` |
 | 로그인 실패 잠금 | 3회 연속 실패 시 계정 잠금 | `/etc/security/faillock.conf` |
+| 실패 카운트 유지 시간 | 900초 (15분) | `/etc/security/faillock.conf` |
 | 잠금 해제 시간 | 600초 (10분) 경과 후 자동 해제 | `/etc/security/faillock.conf` |
 | 실패 기록 표시 억제 | silent 옵션 활성화 | `/etc/security/faillock.conf` |
 
@@ -95,13 +96,13 @@
 
 | 보안 설정 항목 | 적용 내용 | 설정 위치 |
 |---|---|---|
-| 유휴 세션 자동 종료 | 1800초(30분) 무입력 시 로그아웃 | `/etc/profile` |
+| 유휴 세션 자동 종료 | 1800초(30분) 무입력 시 로그아웃 (사용자 변경 불가) | `/etc/profile.d/zzz-timeout.sh` |
 
 ## 환경변수 / 콘솔
 
 | 보안 설정 항목 | 적용 내용 | 설정 위치 |
 |---|---|---|
-| root 콘솔 로그인 제한 | pam_securetty 적용 및 원격 터미널(pts) 제외 | `/etc/pam.d/login`<br>`/etc/securetty` |
+| root 콘솔 로그인 제한 | 허용 터미널을 물리 콘솔로 한정, 원격 터미널(pts) 제외<br>(목록 파일이 없으면 표준 콘솔 목록을 생성한 뒤 적용) | `/etc/pam.d/login`<br>`/etc/securetty` |
 
 ## 스크립트 실행 후 수동 조치 사항
 
