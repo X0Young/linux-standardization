@@ -93,6 +93,20 @@ else
   echo "Port 24477" >> /etc/ssh/sshd_config
 fi
 
+# Ubuntu 26.04+ 는 ssh.socket(systemd 소켓 활성화)이 기본이라, sshd_config 의
+# Port 지시자를 바꿔도 무시되고 소켓이 22번에 고정 바인딩된 채로 남는다.
+# (sshd 로그에는 "Server listening on ... port 22"만 찍히고 24477은 뜨지 않음)
+# 이 경우 소켓 활성화를 끄고 ssh.service 가 직접 포트를 바인딩하도록 전환해야
+# Port 값이 실제로 반영된다.
+if systemctl list-unit-files ssh.socket >/dev/null 2>&1 && systemctl is-enabled ssh.socket >/dev/null 2>&1; then
+  echo "  [감지] ssh.socket 소켓 활성화 사용 중 — sshd_config Port 값이 무시되는 방식입니다."
+  echo "  ssh.socket 비활성화 후 ssh.service 직접 구동으로 전환합니다."
+  systemctl stop ssh.socket 2>/dev/null || true
+  systemctl disable ssh.socket 2>/dev/null || true
+  systemctl enable ssh.service 2>/dev/null || true
+  echo "  [전환 완료] ssh.socket 비활성화, ssh.service 직접 구동으로 전환됨"
+fi
+
 # sshd 설정 검증
 if sshd -t 2>/tmp/sshd_check.err; then
   systemctl restart ssh
