@@ -52,6 +52,21 @@ if ! grep -q '^server 192\.168\.5\.55 iburst' /etc/chrony/chrony.conf; then
   echo "server 192.168.5.55 iburst" >> /etc/chrony/chrony.conf
 fi
 
+# Ubuntu 26.04+ 는 기본 NTP pool 설정이 chrony.conf가 아니라
+# /etc/chrony/sources.d/*.sources (sourcedir로 자동 포함) 로 분리되어 있어서
+# 위 sed만으로는 안 잡히고, Canonical의 외부 NTS pool로 계속 접속을 시도하게 된다.
+# (도달은 안 되지만 "외부 연결 최소화" 정책과 어긋나므로 확실히 꺼둔다)
+if [ -f /etc/chrony/sources.d/ubuntu-ntp-pools.sources ]; then
+  mv /etc/chrony/sources.d/ubuntu-ntp-pools.sources /etc/chrony/sources.d/ubuntu-ntp-pools.sources.disabled
+  echo "  [적용] 외부 Ubuntu NTP pool(sources.d) 비활성화"
+fi
+if [ -f /etc/chrony/conf.d/ubuntu-nts.conf ]; then
+  mv /etc/chrony/conf.d/ubuntu-nts.conf /etc/chrony/conf.d/ubuntu-nts.conf.disabled
+  echo "  [적용] Ubuntu NTS 부트스트랩 인증서 설정(conf.d) 비활성화"
+fi
+# DHCP로 받은 NTP 서버도 자동 사용되지 않도록 주석 처리 (사내 NTP만 명시적으로 사용)
+sed -i 's/^\s*sourcedir\s\+\/run\/chrony-dhcp/## &/' /etc/chrony/chrony.conf
+
 systemctl restart chrony
 sleep 2
 
